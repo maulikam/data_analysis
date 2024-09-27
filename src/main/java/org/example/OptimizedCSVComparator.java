@@ -4,19 +4,16 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 
-import java.io.FileReader;
-import java.io.IOException;
-import java.io.Reader;
+import java.io.*;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.regex.Pattern;
-import java.util.stream.StreamSupport;
 
 public class OptimizedCSVComparator {
 
-    private static final int CHUNK_SIZE = 10000;
+    private static final int CHUNK_SIZE = 100000;
     private static final double SIMILARITY_THRESHOLD = 0.5;
 
     private static final Pattern INTEGER_PATTERN = Pattern.compile("-?\\d+");
@@ -75,10 +72,8 @@ public class OptimizedCSVComparator {
     }
 
     private static boolean isDateFormat(String value, String format) {
-        SimpleDateFormat sdf = new SimpleDateFormat(format);
-        sdf.setLenient(false);
         try {
-            sdf.parse(value);
+            new SimpleDateFormat(format).parse(value);
             return true;
         } catch (ParseException e) {
             return false;
@@ -87,7 +82,7 @@ public class OptimizedCSVComparator {
 
     private static void compareColumns(String file1, String file2,
                                        Map<String, String> file1ColumnTypes,
-                                       Map<String, String> file2ColumnTypes) throws IOException {
+                                       Map<String, String> file2ColumnTypes) throws IOException, InterruptedException {
         ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
         List<Future<ColumnSimilarity>> futures = new ArrayList<>();
 
@@ -107,43 +102,23 @@ public class OptimizedCSVComparator {
                             similarity.getColumn2() + "' have similar data. Similarity: " +
                             String.format("%.2f", similarity.getSimilarity()));
                 }
-            } catch (InterruptedException | ExecutionException e) {
+            } catch (ExecutionException e) {
                 e.printStackTrace();
             }
         }
 
         executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.HOURS);
     }
 
     private static ColumnSimilarity compareColumnData(String file1, String file2, String column1, String column2) throws IOException {
         Set<String> values1 = ConcurrentHashMap.newKeySet();
         Set<String> values2 = ConcurrentHashMap.newKeySet();
 
-        CompletableFuture<Void> readFile1 = CompletableFuture.runAsync(() -> {
-            try {
-                readColumnValues(file1, column1, values1);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        });
+        readColumnValues(file1, column1, values1);
+        readColumnValues(file2, column2, values2);
 
-        CompletableFuture<Void> readFile2 = CompletableFuture.runAsync(() -> {
-            try {
-                readColumnValues(file2, column2, values2);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        });
-
-        CompletableFuture.allOf(readFile1, readFile2).join();
-
-        Set<String> commonValues = new HashSet<>(values1);
-        commonValues.retainAll(values2);
-
-        int smallerSetSize = Math.min(values1.size(), values2.size());
-        double similarity = (double) commonValues.size() / smallerSetSize;
-
-        return new ColumnSimilarity(column1, column2, similarity);
+        return calculateSimilarity(values1, values2, column1, column2);
     }
 
     private static void readColumnValues(String filePath, String columnName, Set<String> values) throws IOException {
@@ -151,12 +126,23 @@ public class OptimizedCSVComparator {
              CSVParser parser = CSVFormat.DEFAULT.withFirstRecordAsHeader().parse(reader)) {
 
             int columnIndex = parser.getHeaderMap().get(columnName);
-            StreamSupport.stream(parser.spliterator(), false)
-                    .map(record -> record.get(columnIndex))
-                    .filter(value -> value != null && !value.trim().isEmpty())
-                    .map(String::trim)
-                    .forEach(values::add);
+            for (CSVRecord record : parser) {
+                String value = record.get(columnIndex);
+                if (value != null && !value.trim().isEmpty()) {
+                    values.add(value.trim());
+                }
+            }
         }
+    }
+
+    private static ColumnSimilarity calculateSimilarity(Set<String> values1, Set<String> values2, String column1, String column2) {
+        Set<String> commonValues = new HashSet<>(values1);
+        commonValues.retainAll(values2);
+
+        int smallerSetSize = Math.min(values1.size(), values2.size());
+        double similarity = (double) commonValues.size() / smallerSetSize;
+
+        return new ColumnSimilarity(column1, column2, similarity);
     }
 
     private static class ColumnSimilarity {
@@ -170,8 +156,16 @@ public class OptimizedCSVComparator {
             this.similarity = similarity;
         }
 
-        public String getColumn1() { return column1; }
-        public String getColumn2() { return column2; }
-        public double getSimilarity() { return similarity; }
+        public String getColumn1() {
+            return column1;
+        }
+
+        public String getColumn2() {
+            return column2;
+        }
+
+        public double getSimilarity() {
+            return similarity;
+        }
     }
 }
