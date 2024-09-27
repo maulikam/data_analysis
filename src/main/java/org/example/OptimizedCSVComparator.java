@@ -11,11 +11,17 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.regex.Pattern;
+import java.util.stream.StreamSupport;
 
 public class OptimizedCSVComparator {
 
     private static final int CHUNK_SIZE = 10000;
     private static final double SIMILARITY_THRESHOLD = 0.5;
+
+    private static final Pattern INTEGER_PATTERN = Pattern.compile("-?\\d+");
+    private static final Pattern DOUBLE_PATTERN = Pattern.compile("-?\\d*\\.?\\d+");
+    private static final Pattern PHONE_PATTERN = Pattern.compile("\\d{10}");
 
     public static void main(String[] args) throws Exception {
         String file1 = "SampleData1.csv";
@@ -53,9 +59,9 @@ public class OptimizedCSVComparator {
         if (value == null || value.trim().isEmpty()) return "String";
         value = value.trim();
 
-        if (value.matches("\\d{10}")) return "PhoneNumber";
-        if (value.matches("-?\\d+")) return "Integer";
-        if (value.matches("-?\\d*\\.?\\d+")) return "Double";
+        if (PHONE_PATTERN.matcher(value).matches()) return "PhoneNumber";
+        if (INTEGER_PATTERN.matcher(value).matches()) return "Integer";
+        if (DOUBLE_PATTERN.matcher(value).matches()) return "Double";
         if (isValidDate(value)) return "Date";
         return "String";
     }
@@ -110,11 +116,26 @@ public class OptimizedCSVComparator {
     }
 
     private static ColumnSimilarity compareColumnData(String file1, String file2, String column1, String column2) throws IOException {
-        Set<String> values1 = new HashSet<>();
-        Set<String> values2 = new HashSet<>();
+        Set<String> values1 = ConcurrentHashMap.newKeySet();
+        Set<String> values2 = ConcurrentHashMap.newKeySet();
 
-        readColumnValues(file1, column1, values1);
-        readColumnValues(file2, column2, values2);
+        CompletableFuture<Void> readFile1 = CompletableFuture.runAsync(() -> {
+            try {
+                readColumnValues(file1, column1, values1);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        CompletableFuture<Void> readFile2 = CompletableFuture.runAsync(() -> {
+            try {
+                readColumnValues(file2, column2, values2);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        CompletableFuture.allOf(readFile1, readFile2).join();
 
         Set<String> commonValues = new HashSet<>(values1);
         commonValues.retainAll(values2);
@@ -130,10 +151,11 @@ public class OptimizedCSVComparator {
              CSVParser parser = CSVFormat.DEFAULT.withFirstRecordAsHeader().parse(reader)) {
 
             int columnIndex = parser.getHeaderMap().get(columnName);
-            parser.stream()
+            StreamSupport.stream(parser.spliterator(), false)
                     .map(record -> record.get(columnIndex))
                     .filter(value -> value != null && !value.trim().isEmpty())
-                    .forEach(value -> values.add(value.trim()));
+                    .map(String::trim)
+                    .forEach(values::add);
         }
     }
 
