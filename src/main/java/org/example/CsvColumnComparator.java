@@ -101,7 +101,8 @@ public class CsvColumnComparator {
         for (Map.Entry<String, String> firstFileColumn : firstFileColumnTypes.entrySet()) {
             for (Map.Entry<String, String> secondFileColumn : secondFileColumnTypes.entrySet()) {
                 if (firstFileColumn.getValue().equals(secondFileColumn.getValue())) {
-                    similarityFutures.add(executorService.submit(() -> compareColumnData(firstFilePath, secondFilePath, firstFileColumn.getKey(), secondFileColumn.getKey())));
+                    similarityFutures.add(executorService.submit(() -> compareColumnData(
+                            firstFilePath, secondFilePath, firstFileColumn.getKey(), secondFileColumn.getKey())));
                 }
             }
         }
@@ -110,8 +111,10 @@ public class CsvColumnComparator {
             try {
                 ColumnSimilarity columnSimilarity = future.get();
                 if (columnSimilarity.getSimilarity() >= SIMILARITY_THRESHOLD) {
-                    System.out.printf("Columns '%s' and '%s' have similar data. Similarity: %.2f%n",
-                            columnSimilarity.getFirstColumn(), columnSimilarity.getSecondColumn(), columnSimilarity.getSimilarity());
+                    System.out.printf("Columns '%s' (File: %s) and '%s' (File: %s) have similar data. Similarity: %.2f%n",
+                            columnSimilarity.getFirstColumn(), columnSimilarity.getFirstFilePath(),
+                            columnSimilarity.getSecondColumn(), columnSimilarity.getSecondFilePath(),
+                            columnSimilarity.getSimilarity());
                 }
             } catch (ExecutionException e) {
                 e.printStackTrace();
@@ -122,14 +125,15 @@ public class CsvColumnComparator {
         executorService.awaitTermination(1, TimeUnit.HOURS);
     }
 
-    private static ColumnSimilarity compareColumnData(String firstFilePath, String secondFilePath, String firstColumn, String secondColumn) throws IOException {
+    private static ColumnSimilarity compareColumnData(String firstFilePath, String secondFilePath,
+                                                      String firstColumn, String secondColumn) throws IOException {
         Set<String> firstFileValues = ConcurrentHashMap.newKeySet();
         Set<String> secondFileValues = ConcurrentHashMap.newKeySet();
 
         readColumnValues(firstFilePath, firstColumn, firstFileValues);
         readColumnValues(secondFilePath, secondColumn, secondFileValues);
 
-        return calculateColumnSimilarity(firstFileValues, secondFileValues, firstColumn, secondColumn);
+        return calculateColumnSimilarity(firstFilePath, secondFilePath, firstFileValues, secondFileValues, firstColumn, secondColumn);
     }
 
     private static void readColumnValues(String filePath, String columnName, Set<String> values) throws IOException {
@@ -146,25 +150,39 @@ public class CsvColumnComparator {
         }
     }
 
-    private static ColumnSimilarity calculateColumnSimilarity(Set<String> firstValues, Set<String> secondValues, String firstColumn, String secondColumn) {
+    private static ColumnSimilarity calculateColumnSimilarity(String firstFilePath, String secondFilePath,
+                                                              Set<String> firstValues, Set<String> secondValues,
+                                                              String firstColumn, String secondColumn) {
         Set<String> commonValues = new HashSet<>(firstValues);
         commonValues.retainAll(secondValues);
 
         int smallerSetSize = Math.min(firstValues.size(), secondValues.size());
         double similarity = (double) commonValues.size() / smallerSetSize;
 
-        return new ColumnSimilarity(firstColumn, secondColumn, similarity);
+        return new ColumnSimilarity(firstFilePath, secondFilePath, firstColumn, secondColumn, similarity);
     }
 
     private static class ColumnSimilarity {
+        private final String firstFilePath;
+        private final String secondFilePath;
         private final String firstColumn;
         private final String secondColumn;
         private final double similarity;
 
-        public ColumnSimilarity(String firstColumn, String secondColumn, double similarity) {
+        public ColumnSimilarity(String firstFilePath, String secondFilePath, String firstColumn, String secondColumn, double similarity) {
+            this.firstFilePath = firstFilePath;
+            this.secondFilePath = secondFilePath;
             this.firstColumn = firstColumn;
             this.secondColumn = secondColumn;
             this.similarity = similarity;
+        }
+
+        public String getFirstFilePath() {
+            return firstFilePath;
+        }
+
+        public String getSecondFilePath() {
+            return secondFilePath;
         }
 
         public String getFirstColumn() {
