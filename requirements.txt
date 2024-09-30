@@ -1,0 +1,5 @@
+dask[dataframe]   # For reading CSV files in chunks and using dataframes
+pandas            # Data analysis and manipulation
+numpy             # Numerical operations
+scikit-learn      # Machine learning utilities, including HashingVectorizer and cosine_similarity
+scipy             # Statistical functions, specifically pearsonr from scipy.stats

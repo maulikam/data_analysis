@@ -33,7 +33,6 @@ def compare_columns(col1: pd.Series, col2: pd.Series) -> float:
         vectorizer = HashingVectorizer(n_features=1000)
         vec1 = vectorizer.fit_transform(col1.astype(str).fillna(''))
         vec2 = vectorizer.transform(col2.astype(str).fillna(''))
-        # Convert to numpy arrays before cosine similarity
         vec1 = np.asarray(vec1.mean(axis=0))
         vec2 = np.asarray(vec2.mean(axis=0))
         return cosine_similarity(vec1, vec2)[0][0]
@@ -52,8 +51,8 @@ def process_chunk(chunk1: pd.DataFrame, df2: pd.DataFrame) -> List[Tuple[str, st
     return similar_columns
 
 def main():
-    file1 = 'sample1.csv'
-    file2 = 'sample2.csv'
+    file1 = 'SampleData1.csv'
+    file2 = 'SampleData2.csv'
 
     print("Loading second file...")
     df2 = dd.read_csv(file2).compute()
